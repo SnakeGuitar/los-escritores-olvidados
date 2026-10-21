@@ -10,24 +10,7 @@ export default defineEventHandler(async (event) => {
   `
   if (!existing[0]) throw createError({ statusCode: 404, message: 'Autor no encontrado.' })
 
-  if (action === 'read') {
-    await sql`
-      UPDATE reading_entries SET
-        position = COALESCE((SELECT MAX(position) + 1 FROM reading_entries other WHERE other.queue_id = ${existing[0].queue_id}), 1),
-        strike_count = 0, paused = FALSE, updated_at = NOW()
-      WHERE id = ${id}
-    `
-  }
-
-  if (action === 'absent') {
-    await sql`
-      UPDATE reading_entries SET
-        strike_count = LEAST(3, strike_count + 1),
-        paused = strike_count + 1 >= 3,
-        updated_at = NOW()
-      WHERE id = ${id}
-    `
-  }
+  if (action === 'read' || action === 'absent') await applyQueueAction(sql, id, action)
 
   if (action === 'update') {
     const author = requiredString(body.author, 'Autor', 120)

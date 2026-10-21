@@ -13,12 +13,19 @@ CREATE TABLE IF NOT EXISTS users (
 CREATE TABLE IF NOT EXISTS sessions (
   token_hash TEXT PRIMARY KEY,
   user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  role TEXT CHECK (role IN ('admin', 'official_reader')),
+  discord_guild_id TEXT,
   access_token_encrypted TEXT NOT NULL,
   refresh_token_encrypted TEXT NOT NULL,
   discord_token_expires_at TIMESTAMPTZ NOT NULL,
   expires_at TIMESTAMPTZ NOT NULL,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+
+-- Existing installations predate the cached Discord authorization fields.
+-- They stay nullable so an active legacy session can be validated and upgraded once.
+ALTER TABLE sessions ADD COLUMN IF NOT EXISTS role TEXT CHECK (role IN ('admin', 'official_reader'));
+ALTER TABLE sessions ADD COLUMN IF NOT EXISTS discord_guild_id TEXT;
 
 CREATE INDEX IF NOT EXISTS sessions_user_id_idx ON sessions(user_id);
 CREATE INDEX IF NOT EXISTS sessions_expires_at_idx ON sessions(expires_at);

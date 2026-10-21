@@ -38,7 +38,7 @@ En Discord Developer Portal:
 3. Activa el modo desarrollador de Discord y copia los IDs del servidor y de los roles autorizados.
 4. Configura las variables de entorno.
 
-El flujo solicita `identify` y `guilds.members.read`. Antes de cada escritura se consulta nuevamente el objeto Member del usuario y se comprueba su rol actual.
+El flujo solicita `identify` y `guilds.members.read`. Discord se consulta al iniciar sesión; durante la semana siguiente, cada escritura valida en PostgreSQL el token de sesión, el rol y el servidor guardados.
 
 Permisos:
 
@@ -65,11 +65,11 @@ NUXT_SESSION_SECRET=
 ## 4. Despliegue en Vercel
 
 1. Añade las variables anteriores en Project Settings → Environment Variables.
-2. Ejecuta la migración una sola vez contra la base de producción.
-3. Despliega el proyecto normalmente.
-4. Entra a `/admin` y autentícate con Discord.
+2. Despliega el proyecto normalmente. El comando de build definido en `vercel.json` ejecuta automáticamente las migraciones antes de cada build de producción.
+3. Entra a `/admin` y autentícate con Discord.
 
 Nuxt transforma automáticamente las rutas de `server/api/` en funciones serverless. No se necesita un proceso permanentemente encendido.
+Los despliegues Preview no modifican la base de datos; si usan una base separada, aplica allí `npm run db:migrate` de forma explícita.
 
 ## Panel de gestión
 
@@ -81,6 +81,16 @@ Nuxt transforma automáticamente las rutas de `server/api/` en funciones serverl
 - Consultar y eliminar contenido existente.
 
 La página de lecturas permite a usuarios autorizados añadir, ordenar, rotar, registrar ausencias y eliminar autores. Los usuarios públicos solo pueden consultar.
+
+`/api/auth/discord?returnTo=/lecturas` devuelve al usuario a esa página tras el login (o de inmediato si ya tiene sesión). Solo se aceptan `/lecturas` y `/admin`; cualquier otro valor cae en `/admin`.
+
+## Pruebas
+
+```bash
+npm test
+```
+
+Cubren la validación de `returnTo`, los redirects del login/callback y la lógica de "Leído"/"Ausente" de la cola.
 
 ## Logo transparente
 

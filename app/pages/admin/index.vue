@@ -129,7 +129,7 @@ useSeoMeta({ title: 'Gestión — Los Escritores Olvidados', robots: 'noindex, n
         <span>Acceso restringido</span>
         <h1>Gestión editorial</h1>
         <p>Inicia sesión con una cuenta que tenga el rol de administrador o lector oficial.</p>
-        <a href="/api/auth/discord">Acceder con Discord <span>↗</span></a>
+        <a href="/api/auth/discord?returnTo=/admin">Acceder con Discord <span>↗</span></a>
       </section>
 
       <template v-else>

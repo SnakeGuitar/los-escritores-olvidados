@@ -1,7 +1,9 @@
 export default defineEventHandler(async (event) => {
   const query = getQuery(event)
   const expectedState = getCookie(event, 'leo_oauth_state')
+  const returnTo = safeReturnTo(getCookie(event, RETURN_TO_COOKIE))
   deleteCookie(event, 'leo_oauth_state', { path: '/' })
+  deleteCookie(event, RETURN_TO_COOKIE, { path: '/' })
 
   if (!query.code || typeof query.code !== 'string' || !query.state || query.state !== expectedState) {
     return sendRedirect(event, '/?auth=invalid')
@@ -31,10 +33,10 @@ export default defineEventHandler(async (event) => {
     await sql`DELETE FROM sessions WHERE expires_at <= NOW()`
     await sql`
       INSERT INTO sessions (
-        token_hash, user_id, access_token_encrypted, refresh_token_encrypted,
+        token_hash, user_id, role, discord_guild_id, access_token_encrypted, refresh_token_encrypted,
         discord_token_expires_at, expires_at
       ) VALUES (
-        ${hashToken(sessionToken)}, ${users[0].id}, ${encryptSecret(tokens.access_token)},
+        ${hashToken(sessionToken)}, ${users[0].id}, ${role}, ${useRuntimeConfig().discordGuildId}, ${encryptSecret(tokens.access_token)},
         ${encryptSecret(tokens.refresh_token)}, ${new Date(Date.now() + tokens.expires_in * 1000)},
         ${sessionExpiresAt}
       )
@@ -47,7 +49,7 @@ export default defineEventHandler(async (event) => {
       path: '/',
       expires: sessionExpiresAt,
     })
-    return sendRedirect(event, '/admin')
+    return sendRedirect(event, returnTo)
   } catch (error: any) {
     console.error('[discord-oauth] Error en callback', {
       statusCode: error?.statusCode ?? error?.response?.status,

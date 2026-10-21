@@ -3,7 +3,8 @@ import type { ReadingDayKey, ReadingQueueKey } from '~/composables/useReadingSch
 
 const props = withDefaults(defineProps<{ compact?: boolean }>(), { compact: false })
 const { queues, status, error, markRead, markAbsent, moveEntry, addEntry, removeEntry } = useReadingSchedule()
-const { data: session } = useFetch('/api/auth/session', { default: () => ({ authenticated: false as const }) })
+const { data: session, refresh: refreshSession } = useFetch('/api/auth/session', { default: () => ({ authenticated: false as const }) })
+const loginUrl = '/api/auth/discord?returnTo=/lecturas'
 
 const selectedDay = ref<ReadingDayKey>('wednesday')
 const managerMode = ref(false)
@@ -11,11 +12,17 @@ const newAuthor = ref('')
 const newWork = ref('')
 const mutationError = ref('')
 const busy = ref(false)
+const sessionExpired = ref(false)
 
 const day = computed(() => readingDays.find(item => item.key === selectedDay.value) ?? readingDays[0])
 const currentQueue = computed(() => queues.value[day.value.queue])
 const activeEntries = computed(() => currentQueue.value.filter(entry => !entry.paused))
 const canManage = computed(() => session.value.authenticated)
+
+watch(canManage, (value) => {
+  if (value) sessionExpired.value = false
+  else managerMode.value = false
+})
 
 const runAction = async (action: () => Promise<unknown>) => {
   mutationError.value = ''
@@ -23,6 +30,12 @@ const runAction = async (action: () => Promise<unknown>) => {
   try {
     await action()
   } catch (error: any) {
+    if ((error?.statusCode ?? error?.status) === 401) {
+      managerMode.value = false
+      sessionExpired.value = true
+      await refreshSession()
+      return
+    }
     mutationError.value = error?.data?.message || error?.data?.statusMessage || 'No se pudo guardar el cambio.'
   } finally {
     busy.value = false
@@ -79,13 +92,16 @@ const queueLabel = (queue: ReadingQueueKey) => queue === 'professional' ? 'Lista
             <span class="lock-icon" aria-hidden="true">{{ managerMode ? '×' : '↗' }}</span>
             {{ managerMode ? 'Cerrar gestión' : 'Gestionar lista' }}
           </button>
-          <a v-else class="manager-toggle" href="/api/auth/discord"><span class="lock-icon" aria-hidden="true">↗</span>Acceso de gestión</a>
+          <a v-else class="manager-toggle" :href="loginUrl"><span class="lock-icon" aria-hidden="true">↗</span>Acceso de gestión</a>
         </div>
 
         <p v-if="error" class="load-state load-state--error">No se pudo cargar la lista.</p>
         <p v-else-if="status === 'pending'" class="load-state">Cargando lista…</p>
         <p v-else-if="currentQueue.length === 0" class="load-state">Todavía no hay autores en esta lista.</p>
         <p v-if="mutationError" class="mutation-error" role="alert">{{ mutationError }}</p>
+        <p v-if="sessionExpired" class="mutation-error" role="alert">
+          Tu sesión expiró y el cambio no se guardó. <a :href="loginUrl">Volver a iniciar sesión</a>
+        </p>
 
         <ol class="reading-list">
           <li
@@ -161,6 +177,7 @@ const queueLabel = (queue: ReadingQueueKey) => queue === 'professional' ? 'Lista
 .lock-icon { margin-right: .35rem; }
 .load-state { padding: 2.5rem 2rem; color: var(--color-text-muted); font: .86rem var(--font-sans); text-align: center; }
 .load-state--error, .mutation-error { color: var(--color-red); }
+.mutation-error a { color: inherit; font-weight: 800; text-decoration: underline; }
 .mutation-error { margin: 1rem 2rem 0; padding: .7rem 1rem; border-radius: 10px; background: var(--color-red-soft); font: .76rem var(--font-sans); }
 .reading-list { list-style: none; padding: 0 2rem; }
 .reading-row { display: grid; grid-template-columns: 52px minmax(0, 1fr) auto auto; align-items: center; gap: 1rem; min-height: 92px; border-bottom: 1px solid var(--color-border-light); }

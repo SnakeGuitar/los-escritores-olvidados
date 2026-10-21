@@ -10,6 +10,8 @@ interface SessionRow {
   username: string
   display_name: string
   avatar_url: string | null
+  role: string | null
+  discord_guild_id: string | null
   access_token_encrypted: string
   refresh_token_encrypted: string
   discord_token_expires_at: Date
@@ -25,7 +27,6 @@ export interface AuthorizedSession {
     avatarUrl: string | null
   }
   role: AppRole
-  accessToken: string
 }
 
 const permissions: Record<AppRole, Permission[]> = {
@@ -73,29 +74,60 @@ async function currentAccessToken(row: SessionRow) {
   return accessToken
 }
 
+function isAppRole(role: string | null): role is AppRole {
+  return role === 'admin' || role === 'official_reader'
+}
+
+function authorizedSession(row: SessionRow, role: AppRole): AuthorizedSession {
+  return {
+    user: {
+      id: row.user_id,
+      discordId: row.discord_id,
+      username: row.username,
+      displayName: row.display_name,
+      avatarUrl: row.avatar_url,
+    },
+    role,
+  }
+}
+
 export async function getAuthorizedSession(event: H3Event): Promise<AuthorizedSession | null> {
   const row = await sessionRow(event)
   if (!row) return null
 
+  const guildId = useRuntimeConfig().discordGuildId
+  if (isAppRole(row.role) && row.discord_guild_id === guildId) {
+    return authorizedSession(row, row.role)
+  }
+
+  // Sessions created before role/guild caching are upgraded once. New sessions
+  // are authorized solely by their opaque, expiring session token in the DB.
+  let role: AppRole | null
   try {
     const accessToken = await currentAccessToken(row)
     const member = await fetchCurrentDiscordMember(accessToken)
-    const role = roleFromDiscordMember(member.user.id, member.roles)
-    if (!role) return null
-    return {
-      user: {
-        id: row.user_id,
-        discordId: row.discord_id,
-        username: row.username,
-        displayName: row.display_name,
-        avatarUrl: row.avatar_url,
-      },
-      role,
-      accessToken,
-    }
-  } catch {
-    return null
+    role = roleFromDiscordMember(member.user.id, member.roles)
+  } catch (error: any) {
+    // Discord definitively rejected the user (revoked/invalid token, not a member).
+    if ([400, 401, 403, 404].includes(error?.statusCode ?? error?.status)) return null
+    // Rate limits, outages and network errors say nothing about the session:
+    // report them as temporary instead of logging the user out.
+    console.error('[auth] No se pudo verificar la sesión con Discord', { statusCode: error?.statusCode ?? error?.status, message: error?.message })
+    throw createError({ statusCode: 503, message: 'No se pudo verificar la sesión con Discord. Inténtalo de nuevo en unos segundos.' })
   }
+  if (!role) return null
+
+  try {
+    await database()`
+      UPDATE sessions
+      SET role = ${role}, discord_guild_id = ${guildId}
+      WHERE token_hash = ${row.token_hash}
+    `
+  } catch (error: any) {
+    // Still authorized by Discord; failing to cache only means re-checking next time.
+    console.error('[auth] No se pudo guardar el rol en la sesión (¿migración pendiente?)', { message: error?.message })
+  }
+  return authorizedSession(row, role)
 }
 
 export async function requirePermission(event: H3Event, permission: Permission) {
