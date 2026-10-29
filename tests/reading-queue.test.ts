@@ -5,14 +5,14 @@ import { planQueueAction, type QueueEntry } from '../server/utils/reading-queue.
 const queue = (...specs: Array<[string, number, boolean?]>): QueueEntry[] =>
   specs.map(([id, strikeCount, paused = false], index) => ({ id, position: index + 1, strikeCount, paused }))
 
-test('absent adds a strike and sends the author to the end', () => {
+test('absent adds a strike and keeps the author in place', () => {
   const plan = planQueueAction(queue(['a', 0], ['b', 0], ['c', 0]), 'a', 'absent')
-  assert.deepEqual(plan, { order: ['b', 'c', 'a'], strikeCount: 1, paused: false })
+  assert.deepEqual(plan, { order: ['a', 'b', 'c'], strikeCount: 1, paused: false })
 })
 
-test('third strike pauses the author', () => {
-  const plan = planQueueAction(queue(['a', 2], ['b', 0]), 'a', 'absent')
-  assert.deepEqual(plan, { order: ['b', 'a'], strikeCount: 3, paused: true })
+test('third strike pauses the author without moving them', () => {
+  const plan = planQueueAction(queue(['a', 0], ['b', 2], ['c', 0]), 'b', 'absent')
+  assert.deepEqual(plan, { order: ['a', 'b', 'c'], strikeCount: 3, paused: true })
 })
 
 test('absent on an author already at 3 strikes changes nothing', () => {
@@ -32,7 +32,7 @@ test('the last author stays last and ordering ignores position gaps', () => {
     { id: 'b', position: 5, strikeCount: 0, paused: false },
   ]
   assert.deepEqual(planQueueAction(entries, 'c', 'read')?.order, ['a', 'b', 'c'])
-  assert.deepEqual(planQueueAction(entries, 'a', 'absent')?.order, ['b', 'c', 'a'])
+  assert.deepEqual(planQueueAction(entries, 'a', 'absent')?.order, ['a', 'b', 'c'])
 })
 
 test('unknown entries yield no plan', () => {

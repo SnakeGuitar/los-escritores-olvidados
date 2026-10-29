@@ -60,7 +60,7 @@ const queueLabel = (queue: ReadingQueueKey) => queue === 'professional' ? 'Lista
         <div>
           <span class="kicker">Ritual semanal</span>
           <h2>Tu turno para ser leído</h2>
-          <p>Consulta el orden, confirma tu obra y llega a la llamada. Si no estás presente, la lista avanza y recibes un strike.</p>
+          <p>Consulta el orden, confirma tu obra y llega a la llamada. Si no estás presente, recibes un strike y conservas tu lugar en la lista.</p>
         </div>
         <div class="rule-pill" aria-label="Regla de strikes">
           <span class="rule-pill__number">3</span>

@@ -20,26 +20,28 @@ export interface QueuePlan {
 }
 
 /**
- * Pure planning step: "Leído" and "Ausente" both send the author to the back
- * of the queue. "Leído" clears strikes and pause; "Ausente" adds a strike and
- * pauses the author on reaching MAX_STRIKES. An author already at MAX_STRIKES
- * is left untouched so a stale click cannot re-queue a paused author.
+ * Pure planning step: "Leído" sends the author to the back of the queue and
+ * clears strikes and pause. "Ausente" only adds a strike, keeping the author's
+ * place, and pauses them on reaching MAX_STRIKES. An author already at
+ * MAX_STRIKES is left untouched so a stale click cannot change a paused author.
  */
 export function planQueueAction(entries: QueueEntry[], id: string, action: QueueAction): QueuePlan | null {
   const sorted = [...entries].sort((a, b) => a.position - b.position)
   const target = sorted.find(entry => entry.id === id)
   if (!target) return null
 
-  if (action === 'absent' && target.strikeCount >= MAX_STRIKES) {
-    return { order: sorted.map(entry => entry.id), strikeCount: target.strikeCount, paused: true }
+  const currentOrder = sorted.map(entry => entry.id)
+
+  if (action === 'read') {
+    return {
+      order: [...currentOrder.filter(entryId => entryId !== id), id],
+      strikeCount: 0,
+      paused: false,
+    }
   }
 
-  const strikeCount = action === 'read' ? 0 : Math.min(MAX_STRIKES, target.strikeCount + 1)
-  return {
-    order: [...sorted.filter(entry => entry.id !== id).map(entry => entry.id), id],
-    strikeCount,
-    paused: action === 'absent' && strikeCount >= MAX_STRIKES,
-  }
+  const strikeCount = Math.min(MAX_STRIKES, target.strikeCount + 1)
+  return { order: currentOrder, strikeCount, paused: strikeCount >= MAX_STRIKES }
 }
 
 interface QueueRow {
@@ -50,8 +52,8 @@ interface QueueRow {
 }
 
 /**
- * Applies a read/absent action atomically. The queue rows are locked, the
- * target moves to the end and the whole queue is renumbered 1..n in two phases
+ * Applies a read/absent action atomically. The queue rows are locked and, when
+ * the order changes (read), the whole queue is renumbered 1..n in two phases
  * (shift everything out of range, then assign final positions) because
  * UNIQUE (queue_id, position) is checked row by row.
  */
@@ -74,16 +76,18 @@ export async function applyQueueAction(sql: Sql, id: string, action: QueueAction
     )
     if (!plan) throw createError({ statusCode: 404, message: 'Autor no encontrado.' })
 
-    await transaction`
-      UPDATE reading_entries
-      SET position = position + (SELECT MAX(position) FROM reading_entries WHERE queue_id = ${queueId})
-      WHERE queue_id = ${queueId}
-    `
-    await transaction`
-      UPDATE reading_entries AS entry SET position = ordered.position
-      FROM unnest(${transaction.array(plan.order)}::uuid[]) WITH ORDINALITY AS ordered(id, position)
-      WHERE entry.id = ordered.id
-    `
+    if (action === 'read') {
+      await transaction`
+        UPDATE reading_entries
+        SET position = position + (SELECT MAX(position) FROM reading_entries WHERE queue_id = ${queueId})
+        WHERE queue_id = ${queueId}
+      `
+      await transaction`
+        UPDATE reading_entries AS entry SET position = ordered.position
+        FROM unnest(${transaction.array(plan.order)}::uuid[]) WITH ORDINALITY AS ordered(id, position)
+        WHERE entry.id = ordered.id
+      `
+    }
     await transaction`
       UPDATE reading_entries
       SET strike_count = ${plan.strikeCount}, paused = ${plan.paused}, updated_at = NOW()
